@@ -4,3 +4,4 @@ numpy
 pandas
 scikit-learn
 tensorflow
+werkzeug==2.3.7
