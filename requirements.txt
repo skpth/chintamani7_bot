@@ -1,5 +1,0 @@
-flask
-python-telegram-bot
-numpy
-tensorflow
-keras
