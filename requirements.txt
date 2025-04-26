@@ -1,0 +1,6 @@
+flask
+pyTelegramBotAPI
+tensorflow
+scikit-learn
+numpy
+pandas
