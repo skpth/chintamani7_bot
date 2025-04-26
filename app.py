@@ -1,64 +1,72 @@
 from flask import Flask, request
-import telebot
-import json
+import telegram
 import os
 from model.predictor import predict_next
+from model.train import train_model
+from model.backup import backup_outcomes
+import json
 
-TOKEN = '7797596863:AAHETWZXRdf5BcTKizXXM8Jn4CYwi_et8dI'  # Bot token already set
-bot = telebot.TeleBot(TOKEN)
+TOKEN = '7797596863:AAHETWZXRdf5BcTKizXXM8Jn4CYwi_et8dI'
+bot = telegram.Bot(token=TOKEN)
+
 app = Flask(__name__)
 
-DB_FILE = 'outcomes.json'
+# Load previous outcomes
+if os.path.exists('outcomes.json'):
+    with open('outcomes.json', 'r') as f:
+        outcomes = json.load(f)
+else:
+    outcomes = []
 
-if not os.path.exists(DB_FILE):
-    with open(DB_FILE, 'w') as f:
-        json.dump([], f)
+# Training Status
+is_training = False
 
-# Helper Functions
-def load_outcomes():
-    with open(DB_FILE, 'r') as f:
-        return json.load(f)
-
-def save_outcomes(data):
-    with open(DB_FILE, 'w') as f:
-        json.dump(data, f)
-
-# Routes
 @app.route(f'/{TOKEN}', methods=['POST'])
 def telegram_webhook():
-    update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
-    bot.process_new_updates([update])
+    global outcomes
+    global is_training
+
+    update = telegram.Update.de_json(request.get_json(force=True), bot)
+
+    if update.message:
+        text = update.message.text.lower()
+        chat_id = update.message.chat.id
+
+        if text.startswith('/start'):
+            bot.sendMessage(chat_id=chat_id, text="Bot started. Send outcomes (B/S) to train or use /predict.")
+
+        elif text.startswith('/predict'):
+            if len(outcomes) < 5:
+                bot.sendMessage(chat_id=chat_id, text="Not enough data. Please provide at least 5 outcomes.")
+            else:
+                last_five = outcomes[-5:]
+                prediction, confidence = predict_next(last_five)
+                bot.sendMessage(chat_id=chat_id, text=f"Prediction: {prediction} with confidence {confidence}%")
+
+        elif text.startswith('/train'):
+            train_model(outcomes)
+            bot.sendMessage(chat_id=chat_id, text="Model retrained.")
+
+        elif text.startswith('/status'):
+            bot.sendMessage(chat_id=chat_id, text=f"Stored outcomes: {len(outcomes)}")
+
+        elif text.startswith('/help'):
+            bot.sendMessage(chat_id=chat_id, text="/start /status /predict /train /help")
+
+        else:
+            # Accept manual entries B/S
+            for c in text:
+                if c in ['b', 's']:
+                    outcomes.append(c.upper())
+            with open('outcomes.json', 'w') as f:
+                json.dump(outcomes, f)
+            bot.sendMessage(chat_id=chat_id, text=f"Received and saved {len(text)} outcomes.")
+
     return 'ok'
 
-# Bot Handlers
-@bot.message_handler(commands=['start'])
-def start(message):
-    bot.send_message(message.chat.id, "Welcome to Chintamani7 AI Bot! Send outcomes or use /train /predict.")
-
-@bot.message_handler(commands=['train'])
-def train(message):
-    outcomes = load_outcomes()
-    bot.send_message(message.chat.id, f"Training completed on {len(outcomes)} outcomes!")
-
-@bot.message_handler(commands=['predict'])
-def predict(message):
-    outcomes = load_outcomes()
-    if len(outcomes) < 5:
-        bot.send_message(message.chat.id, "Need at least 5 outcomes to predict!")
-        return
-    prediction = predict_next(outcomes[-5:])
-    bot.send_message(message.chat.id, f"Next Prediction: {prediction}")
-
-@bot.message_handler(func=lambda m: True)
-def add_outcome(message):
-    text = message.text.strip().upper()
-    if text in ['B', 'S']:
-        outcomes = load_outcomes()
-        outcomes.append(text)
-        if len(outcomes) > 500000:
-            outcomes.pop(0)
-        save_outcomes(outcomes)
-        bot.send_message(message.chat.id, f"Added {text}. Total entries: {len(outcomes)}")
+@app.route('/')
+def index():
+    return 'Bot is running.'
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get('PORT', 10000)))
