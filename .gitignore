@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.env
+backup/*.bak
+backup/__pycache__/
+model/__pycache__/
